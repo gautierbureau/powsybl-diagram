@@ -162,17 +162,29 @@ public abstract class AbstractVoltageStyleProvider extends AbstractStyleProvider
 
     @Override
     public List<String> getHighlightNodeStyleClasses(Node node) {
+        // No subnetwork to highlight (the common case): skip the network lookup entirely
+        if (subnetworksHighlightMap.isEmpty()) {
+            return Collections.emptyList();
+        }
         String subnetworkId = network.getIdentifiable(node.getEquipmentId()).getParentNetwork().getId();
         return getFromSubnetworksHighlightMap(subnetworkId);
     }
 
     @Override
     public List<String> getHighlightSideEdgeStyleClasses(BranchEdge edge, BranchEdge.Side side) {
+        // No subnetwork to highlight (the common case): skip the terminal resolution entirely
+        if (subnetworksHighlightMap.isEmpty()) {
+            return Collections.emptyList();
+        }
         return getSubnetworkId(edge, side).map(subnetworksHighlightMap::get).map(List::of).orElse(Collections.emptyList());
     }
 
     @Override
     public List<String> getHighlightThreeWtEdgStyleClasses(ThreeWtEdge edge) {
+        // No subnetwork to highlight (the common case): skip the terminal resolution entirely
+        if (subnetworksHighlightMap.isEmpty()) {
+            return Collections.emptyList();
+        }
         String subnetworkId = getSubnetworkId(edge.getEquipmentId(), edge.getSide());
         return getFromSubnetworksHighlightMap(subnetworkId);
     }

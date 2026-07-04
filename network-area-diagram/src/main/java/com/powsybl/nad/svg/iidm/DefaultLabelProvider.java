@@ -92,7 +92,7 @@ public class DefaultLabelProvider implements LabelProvider {
         Map<String, String> busLegend = new HashMap<>();
         if (parameters.isBusLegend()) {
             for (Bus bus : vl.getBusView().getBuses()) {
-                busLegend.put(bus.getId(), getBusLegend(bus.getId()));
+                busLegend.put(bus.getId(), getBusLegend(bus));
             }
         }
         return new VoltageLevelLegend(getLegendHeader(vl), getLegendFooter(vl), busLegend);
@@ -214,30 +214,48 @@ public class DefaultLabelProvider implements LabelProvider {
         return description;
     }
 
-    private String getBusLegend(String busId) {
-        if (parameters.isBusLegend()) {
-            Bus b = network.getBusView().getBus(busId);
-            String voltage = valueFormatter.formatVoltage(b.getV(), "kV");
-            String angle = valueFormatter.formatAngleInDegrees(b.getAngle());
-            return this.displayAngle ? voltage + " / " + angle : voltage;
-        }
-        return null;
+    private String getBusLegend(Bus bus) {
+        // the bus is already in hand from the caller's iteration, no need to re-resolve it through the
+        // whole-network bus view
+        String voltage = valueFormatter.formatVoltage(bus.getV(), "kV");
+        String angle = valueFormatter.formatAngleInDegrees(bus.getAngle());
+        return this.displayAngle ? voltage + " / " + angle : voltage;
     }
 
     private List<String> getLegendFooter(VoltageLevel voltageLevel) {
         List<String> voltageLevelDetails = new ArrayList<>();
 
         if (parameters.isVoltageLevelDetails()) {
-            double activeProductionValue = voltageLevel.getGeneratorStream().mapToDouble(generator -> -generator.getTerminal().getP()).filter(p -> !Double.isNaN(p)).sum();
+            // single pass over the generators, then over the loads, accumulating active and reactive together
+            // (same per-element order as the original per-stream sums, so the totals are unchanged)
+            double activeProductionValue = 0;
+            double reactiveProductionValue = 0;
+            for (var generator : voltageLevel.getGenerators()) {
+                double p = -generator.getTerminal().getP();
+                if (!Double.isNaN(p)) {
+                    activeProductionValue += p;
+                }
+                double q = -generator.getTerminal().getQ();
+                if (!Double.isNaN(q)) {
+                    reactiveProductionValue += q;
+                }
+            }
             String activeProduction = activeProductionValue == 0 ? "" : valueFormatter.formatPower(activeProductionValue, "MW");
-
-            double reactiveProductionValue = voltageLevel.getGeneratorStream().mapToDouble(generator -> -generator.getTerminal().getQ()).filter(q -> !Double.isNaN(q)).sum();
             String reactiveProduction = reactiveProductionValue == 0 ? "" : valueFormatter.formatPower(reactiveProductionValue, "MVAR");
 
-            double activeConsumptionValue = voltageLevel.getLoadStream().mapToDouble(load -> load.getTerminal().getP()).filter(p -> !Double.isNaN(p)).sum();
+            double activeConsumptionValue = 0;
+            double reactiveConsumptionValue = 0;
+            for (var load : voltageLevel.getLoads()) {
+                double p = load.getTerminal().getP();
+                if (!Double.isNaN(p)) {
+                    activeConsumptionValue += p;
+                }
+                double q = load.getTerminal().getQ();
+                if (!Double.isNaN(q)) {
+                    reactiveConsumptionValue += q;
+                }
+            }
             String activeConsumption = activeConsumptionValue == 0 ? "" : valueFormatter.formatPower(activeConsumptionValue, "MW");
-
-            double reactiveConsumptionValue = voltageLevel.getLoadStream().mapToDouble(load -> load.getTerminal().getQ()).filter(q -> !Double.isNaN(q)).sum();
             String reactiveConsumption = reactiveConsumptionValue == 0 ? "" : valueFormatter.formatPower(reactiveConsumptionValue, "MVAR");
 
             if (!activeProduction.isEmpty() || !reactiveProduction.isEmpty()) {
