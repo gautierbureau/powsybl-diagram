@@ -15,6 +15,7 @@ import com.powsybl.sld.model.nodes.BusNode;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -150,7 +151,12 @@ public class BlockPositionner {
                                           Side side, List<InternCell> nonFlatCellsToClose) {
         // side, is the side from the InternCell standpoint. The left side of the internCell shall be on the right of the subsection
         int hPosRes = hPos;
-        cells.sort(Comparator.comparingInt(c -> -nonFlatCellsToClose.indexOf(c)));
+        // precompute the indices to avoid an O(n) indexOf call inside the comparator
+        Map<InternCell, Integer> cellsToCloseIndices = new HashMap<>();
+        for (int i = 0; i < nonFlatCellsToClose.size(); i++) {
+            cellsToCloseIndices.putIfAbsent(nonFlatCellsToClose.get(i), i);
+        }
+        cells.sort(Comparator.comparingInt(c -> -cellsToCloseIndices.getOrDefault(c, -1)));
         for (InternCell cell : cells) {
             hPosRes = cell.newHPosition(hPosRes, side);
         }

@@ -28,10 +28,21 @@ public record BoundingBox(double left, double top, double right, double bottom) 
 
     public static BoundingBox computeBoundingBox(Collection<Point> points) {
         // using 0 as default this way the box for no points is the identity element for box fusion
-        double left = points.stream().mapToDouble(p -> p.getPosition().getX()).min().orElse(0);
-        double bottom = points.stream().mapToDouble(p -> p.getPosition().getY()).max().orElse(0);
-        double right = points.stream().mapToDouble(p -> p.getPosition().getX()).max().orElse(0);
-        double top = points.stream().mapToDouble(p -> p.getPosition().getY()).min().orElse(0);
+        if (points.isEmpty()) {
+            return new BoundingBox(0, 0, 0, 0);
+        }
+        // single pass over the points instead of one stream per side
+        double left = Double.POSITIVE_INFINITY;
+        double top = Double.POSITIVE_INFINITY;
+        double right = Double.NEGATIVE_INFINITY;
+        double bottom = Double.NEGATIVE_INFINITY;
+        for (Point point : points) {
+            Vector2D position = point.getPosition();
+            left = Math.min(left, position.getX());
+            right = Math.max(right, position.getX());
+            top = Math.min(top, position.getY());
+            bottom = Math.max(bottom, position.getY());
+        }
         return new BoundingBox(left, top, right, bottom);
     }
 

@@ -11,6 +11,8 @@ import com.powsybl.diagram.util.layout.geometry.Point;
 import com.powsybl.diagram.util.layout.geometry.Vector2D;
 import com.powsybl.diagram.util.layout.geometry.LayoutContext;
 import org.jgrapht.Graphs;
+import org.jgrapht.graph.DefaultEdge;
+import org.jgrapht.graph.SimpleGraph;
 
 /**
  * A force that attracts a point towards the other points it has an edge with. The further away the points are, the stronger the force is.
@@ -27,7 +29,11 @@ public class EdgeAttractionForceLinear<V, E> implements Force<V, E> {
     @Override
     public Vector2D apply(V vertex, Point point, LayoutContext<V, E> layoutContext) {
         Vector2D resultingForce = new Vector2D();
-        for (V otherVertex : Graphs.neighborSetOf(layoutContext.getSimpleGraph(), vertex)) {
+        // iterate over the edges directly instead of using Graphs.neighborSetOf, which allocates a new set on each call
+        // the graph is a SimpleGraph so there are no parallel edges nor loops: each edge gives a distinct neighbor
+        SimpleGraph<V, DefaultEdge> simpleGraph = layoutContext.getSimpleGraph();
+        for (DefaultEdge edge : simpleGraph.edgesOf(vertex)) {
+            V otherVertex = Graphs.getOppositeVertex(simpleGraph, edge, vertex);
             Point otherPoint = layoutContext.getAllPoints().get(otherVertex);
             forceBetweenPoints(resultingForce, point, otherPoint);
         }
@@ -35,9 +41,11 @@ public class EdgeAttractionForceLinear<V, E> implements Force<V, E> {
     }
 
     private void forceBetweenPoints(Vector2D resultingForce, Point point, Point otherPoint) {
-        Vector2D force = Vector2D.calculateVectorBetweenPoints(point, otherPoint);
-        force.multiplyBy(forceIntensity);
-        resultingForce.add(force);
+        // The force goes from the point to the otherPoint (attraction); computed on doubles directly
+        // to avoid allocating an intermediate Vector2D in this hot loop
+        double forceX = otherPoint.getPosition().getX() - point.getPosition().getX();
+        double forceY = otherPoint.getPosition().getY() - point.getPosition().getY();
+        resultingForce.add(forceX * forceIntensity, forceY * forceIntensity);
     }
 }
 

@@ -85,6 +85,8 @@ public class Atlas2ForceLayoutAlgorithm<V, E> implements LayoutAlgorithm<V, E> {
     public void run(LayoutContext<V, E> layoutContext) {
         Objects.requireNonNull(layoutContext);
         forces.forEach(f -> f.init(layoutContext));
+        // cache the vertex degree on the points, so the hot loop of calculateForces does not need to query JGraphT at each step
+        layoutContext.cacheDegree();
 
         Map<Point, Vector2D> previousForces = new HashMap<>();
         Map<Point, Double> swingMap = new HashMap<>();
@@ -156,7 +158,7 @@ public class Atlas2ForceLayoutAlgorithm<V, E> implements LayoutAlgorithm<V, E> {
             // calculate swg(n) for each node the swing of the node
             // at the same time calculate tra(n) the traction of the node
             // we can also calculate swg(G) and tra(G) the swing and traction of the graph
-            int weight = layoutContext.getSimpleGraph().degreeOf(entry.getKey()) + 1;
+            int weight = point.getPointVertexDegree() + 1;
             Vector2D previousPointForce = previousForces.get(point);
             double pointSwing = calculatePointSwing(point, previousPointForce);
             swingMap.put(point, pointSwing);

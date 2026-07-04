@@ -13,6 +13,7 @@ import com.powsybl.sld.model.graphs.VoltageLevelGraph;
 
 import java.util.Arrays;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -28,6 +29,11 @@ public class InfosNbSnakeLinesVertical {
     private final Map<Side, Integer> nbSnakeLinesLeftRight;
     private final List<String> vlYSorted;
     private final int[] nbSnakeLinesHorizontalBetween;
+    /**
+     * The index of each voltage level id in {@link #vlYSorted}, to avoid an O(number of voltage levels)
+     * {@code indexOf} lookup for each snake line
+     */
+    private final Map<String, Integer> vlYSortedIndices = new HashMap<>();
 
     static InfosNbSnakeLinesVertical create(AbstractBaseGraph graph) {
         Map<Side, Integer> nbSnakeLinesLeftRight = EnumSet.allOf(Side.class).stream().collect(Collectors.toMap(Function.identity(), v -> 0));
@@ -42,6 +48,9 @@ public class InfosNbSnakeLinesVertical {
         this.nbSnakeLinesLeftRight = nbSnakeLinesLeftRight;
         this.vlYSorted = vlYSorted;
         this.nbSnakeLinesHorizontalBetween = nbSnakeLinesHorizontalBetween;
+        for (int i = 0; i < vlYSorted.size(); i++) {
+            vlYSortedIndices.putIfAbsent(vlYSorted.get(i), i);
+        }
     }
 
     public Map<Side, Integer> getNbSnakeLinesLeftRight() {
@@ -49,7 +58,7 @@ public class InfosNbSnakeLinesVertical {
     }
 
     private int getSnakeLinesIndex(Direction direction, String vlId) {
-        int vlIndex = vlYSorted.indexOf(vlId);
+        int vlIndex = vlYSortedIndices.getOrDefault(vlId, -1);
         return direction == Direction.BOTTOM ? vlIndex + 1 : vlIndex;
     }
 

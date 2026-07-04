@@ -16,7 +16,9 @@ import com.powsybl.nad.utils.RadiusUtils;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -108,8 +110,9 @@ public abstract class AbstractEdgeRouting implements EdgeRouting {
     }
 
     private List<Double> computeLoopAngles(Graph graph, List<BranchEdge> loopEdges, Node node, SvgParameters svgParameters) {
+        Set<BranchEdge> loopEdgesSet = new HashSet<>(loopEdges);
         List<Double> anglesOtherEdges = graph.getEdgeStream(node)
-                .filter(e -> !loopEdges.contains(e))
+                .filter(e -> !loopEdgesSet.contains(e))
                 .mapToDouble(e -> getAngle(e, graph, node))
                 .sorted().boxed().collect(Collectors.toList());
         return findAvailableAngles(anglesOtherEdges, loopEdges.size(), svgParameters.getLoopEdgesAperture() * 1.2);

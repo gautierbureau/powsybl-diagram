@@ -10,9 +10,6 @@ package com.powsybl.diagram.util.layout.forces;
 import com.powsybl.commons.ref.Ref;
 import com.powsybl.diagram.util.layout.geometry.*;
 
-import java.util.ArrayList;
-import java.util.List;
-
 /**
  * A linear repulsion force dependent on the number of edges of a node (same as {@link RepulsionForceDegreeBasedLinear}), but uses
  * a quadtree to speedup calculations by approximating far away points as their barycenters
@@ -31,39 +28,32 @@ public class RepulsionForceDegreeBasedLinearBarnesHut<V, E> extends AbstractByEd
 
     public Vector2D apply(V vertex, Point point, LayoutContext<V, E> layoutContext) {
         Vector2D resultingForce = new Vector2D();
-        BoundingBox rootBb = quadtreeContainer.get().getBoundingBox();
+        Quadtree quadtree = quadtreeContainer.get();
+        BoundingBox rootBb = quadtree.getBoundingBox();
         // bounding box might not be square, this will work best for shapes that are not too long
         // could also test by using the diagonal width (using square root), might be faster as it will be tighter (but longer to calculate too)
         double width = Math.max(rootBb.getWidth(), rootBb.getHeight());
         // Assume the quadtree is built based on isEffectFromFixedNodes (ie with the fixed points in it or not)
-        List<Point> pointInteractionList = new ArrayList<>();
-        generatePointInteractionList(
-            quadtreeContainer.get().getRootIndex(),
+        applyRepulsionFromNode(
+            quadtree,
+            quadtree.getRootIndex(),
             point,
             width,
-            pointInteractionList
+            resultingForce
         );
-        for (Point otherPoint : pointInteractionList) {
-            if (!otherPoint.getPosition().equals(point.getPosition())) {
-                linearRepulsionBetweenPoints(
-                        forceIntensity,
-                        resultingForce,
-                        point,
-                        otherPoint
-                );
-            }
-        }
         return resultingForce;
     }
 
     private void linearRepulsionBetweenPoints(
-            double forceIntensity,
             Vector2D resultingForce,
             Point point,
             Point otherPoint
     ) {
         // The force goes from the otherPoint to the point (repulsion)
-        Vector2D force = Vector2D.calculateVectorBetweenPoints(otherPoint, point);
+        Vector2D pointPosition = point.getPosition();
+        Vector2D otherPosition = otherPoint.getPosition();
+        double forceX = pointPosition.getX() - otherPosition.getX();
+        double forceY = pointPosition.getY() - otherPosition.getY();
         // divide by magnitude^2 because the force multiplies the unit vector by something/magnitude
         // the unit vector is Vector/magnitude, thus the force is Vector/magnitude * something/magnitude, thus Vector/magnitude^2
         // if we just use the vector and not the unit vector, points that are further away will have the same influence as points that are close
@@ -74,44 +64,41 @@ public class RepulsionForceDegreeBasedLinearBarnesHut<V, E> extends AbstractByEd
         double intensity = forceIntensity
             * (point.getPointVertexDegree() + 1)
             * (otherPoint.getMass())
-            / force.magnitudeSquare(); // no need to check division by 0, apply already does that
-        force.multiplyBy(intensity);
-        resultingForce.add(force);
+            / (forceX * forceX + forceY * forceY); // no need to check division by 0, applyRepulsionFromNode already does that
+        resultingForce.add(forceX * intensity, forceY * intensity);
     }
 
     /**
-     * Recursively descend into child nodes of the quadtree and fill pointsToInteract with all the points / barycenters
-     * that a given point has to calculate the repulsion force with.<br>
+     * Recursively descend into child nodes of the quadtree and accumulate into resultingForce the repulsion of all
+     * the points / barycenters that a given point has to interact with.<br>
      * This uses a decision criteria, we use the barycenter of a node of the quadtree instead of all its points if the width of the barycenter node
      * is smaller than the barnesHutTheta * the distance between point and the barycenter
+     * @param quadtree the quadtree containing the points / barycenters
      * @param nodeIndex the index of the node we are considering approximating all the points it contains to its barycenter
-     * @param point the point we want to get the list of interacting points for
+     * @param point the point we want to compute the repulsion force for
      * @param nodeWidth the width of the node corresponding to nodeIndex
-     * @param pointsToInteractWith the list of points to fill
+     * @param resultingForce the force vector to accumulate into
      */
-    private void generatePointInteractionList(
+    private void applyRepulsionFromNode(
+            Quadtree quadtree,
             int nodeIndex,
             Point point,
             double nodeWidth,
-            List<Point> pointsToInteractWith
+            Vector2D resultingForce
     ) {
-        Quadtree quadtree = quadtreeContainer.get();
-        Point barycenter = quadtree.getNodes()[nodeIndex].getNodeBarycenter();
+        Quadtree.QuadtreeNode thisNode = quadtree.getNodes()[nodeIndex];
+        Point barycenter = thisNode.getNodeBarycenter();
         // Check the theta parameter ie width / distance < theta
-        if (nodeWidth < barnesHutTheta * point.distanceTo(barycenter)) {
-            pointsToInteractWith.add(barycenter);
-        } else {
-            Quadtree.QuadtreeNode thisNode = quadtree.getNodes()[nodeIndex];
-            double childNodeWidth = nodeWidth / 2;
-            int[] realChildrenId = thisNode.getRealChildrenNodeIndex();
-            for (int index : realChildrenId) {
-                generatePointInteractionList(index, point, childNodeWidth, pointsToInteractWith);
+        // if the node is a leaf, interact with the point directly (there is no approximation for a single point)
+        if (nodeWidth < barnesHutTheta * point.distanceTo(barycenter) || thisNode.isLeaf()) {
+            if (!barycenter.getPosition().equals(point.getPosition())) {
+                linearRepulsionBetweenPoints(resultingForce, point, barycenter);
             }
-            // if the list is empty, it means we are a leaf node, need to add self to the list and return
-            if (realChildrenId.length == 0) {
-                pointsToInteractWith.add(barycenter);
+        } else {
+            double childNodeWidth = nodeWidth / 2;
+            for (int childIndex : thisNode.getRealChildrenNodeIndex()) {
+                applyRepulsionFromNode(quadtree, childIndex, point, childNodeWidth, resultingForce);
             }
         }
     }
 }
-

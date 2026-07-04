@@ -47,8 +47,11 @@ public class CoulombForce<V, E> implements Force<V, E> {
 
     private void coulombBetweenPoints(Vector2D resultingForce, Point point, Point otherPoint,
                                       LayoutContext<V, E> layoutContext) {
-        Vector2D force = Vector2D.calculateVectorBetweenPoints(otherPoint, point);
-        double magnitude = force.magnitude();
+        // The force goes from the otherPoint to the point; computed on doubles directly to avoid
+        // allocating an intermediate Vector2D in this O(n^2) inner loop
+        double forceX = point.getPosition().getX() - otherPoint.getPosition().getX();
+        double forceY = point.getPosition().getY() - otherPoint.getPosition().getY();
+        double magnitude = Math.sqrt(forceX * forceX + forceY * forceY);
         if (magnitude != 0) {
             // this is the contracted version of calculating Coulomb, if we take V as the vector from otherPoint to point, then
             // if we take M(V) the magnitude of the vector V:
@@ -60,8 +63,7 @@ public class CoulombForce<V, E> implements Force<V, E> {
             // In a goal of getting the same results after the refactor, this implementation of Coulomb does the same
             // even if it could be considered "incorrect" compared to the original goal of those operations
             double intensity = forceIntensity / (magnitude * magnitude * magnitude * 0.5 + 0.1 * magnitude);
-            force.multiplyBy(intensity);
-            resultingForce.add(force);
+            resultingForce.add(forceX * intensity, forceY * intensity);
         } else {
             resultingForce.add(RandomForce.getRandomForce(layoutContext.getRandomGeneratorForForces()));
         }

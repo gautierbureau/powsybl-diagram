@@ -13,7 +13,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.function.Predicate;
 import java.util.function.ToDoubleFunction;
-import java.util.stream.IntStream;
 
 /**
  * A quadtree is a structure that recursively divides a space in 4 until only a given number of points reside in each subdivided area. In this case,
@@ -45,13 +44,45 @@ public class Quadtree {
          * @return all the index of children that actually exists (ie all quadrants that have at least a point in them)
          */
         public int[] getRealChildrenNodeIndex() {
-            return IntStream.of(
-                topLeftIndex,
-                topRightIndex,
-                bottomLeftIndex,
-                bottomRightIndex
-            ).filter(id -> id != NO_CHILDREN)
-            .toArray();
+            // this is called in the hot path of the Barnes-Hut traversal, so avoid stream pipeline allocations
+            int count = 0;
+            if (topLeftIndex != NO_CHILDREN) {
+                ++count;
+            }
+            if (topRightIndex != NO_CHILDREN) {
+                ++count;
+            }
+            if (bottomLeftIndex != NO_CHILDREN) {
+                ++count;
+            }
+            if (bottomRightIndex != NO_CHILDREN) {
+                ++count;
+            }
+            int[] realChildren = new int[count];
+            int i = 0;
+            if (topLeftIndex != NO_CHILDREN) {
+                realChildren[i++] = topLeftIndex;
+            }
+            if (topRightIndex != NO_CHILDREN) {
+                realChildren[i++] = topRightIndex;
+            }
+            if (bottomLeftIndex != NO_CHILDREN) {
+                realChildren[i++] = bottomLeftIndex;
+            }
+            if (bottomRightIndex != NO_CHILDREN) {
+                realChildren[i] = bottomRightIndex;
+            }
+            return realChildren;
+        }
+
+        /**
+         * @return true if this node has no children, ie it is a leaf node
+         */
+        public boolean isLeaf() {
+            return topLeftIndex == NO_CHILDREN
+                && topRightIndex == NO_CHILDREN
+                && bottomLeftIndex == NO_CHILDREN
+                && bottomRightIndex == NO_CHILDREN;
         }
 
         public Point getNodeBarycenter() {

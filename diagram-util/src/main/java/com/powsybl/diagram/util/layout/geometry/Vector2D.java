@@ -45,6 +45,17 @@ public class Vector2D {
     }
 
     /**
+     * Add the given coordinates to this vector. This avoids allocating an intermediate {@link Vector2D}
+     * in performance-critical loops.
+     * @param dx the value to add to the x coordinate
+     * @param dy the value to add to the y coordinate
+     */
+    public void add(double dx, double dy) {
+        this.x += dx;
+        this.y += dy;
+    }
+
+    /**
      * Scale the <code>otherVector</code> by the <code>scalingFactor</code> and add it to this vector.
      * Note that the <code>otherVector</code> is not modified by this operation.
      * @param otherVector the other vector we want to add

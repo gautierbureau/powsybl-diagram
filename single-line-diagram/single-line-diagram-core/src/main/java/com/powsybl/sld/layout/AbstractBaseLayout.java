@@ -41,8 +41,10 @@ public abstract class AbstractBaseLayout<T extends AbstractBaseGraph> extends Ab
         List<Point> polyline;
         Node node1 = nodes.getFirst();
         Node node2 = nodes.getSecond();
-        if (getGraph().getVoltageLevelGraph(node1) == getGraph().getVoltageLevelGraph(node2)) { // in the same VL (so far always horizontal layout)
-            VoltageLevelGraph vlGraph = getGraph().getVoltageLevelGraph(node1);
+        VoltageLevelGraph vlGraph1 = getGraph().getVoltageLevelGraph(node1);
+        VoltageLevelGraph vlGraph2 = getGraph().getVoltageLevelGraph(node2);
+        if (vlGraph1 == vlGraph2) { // in the same VL (so far always horizontal layout)
+            VoltageLevelGraph vlGraph = vlGraph1;
             String graphId = vlGraph.getId();
 
             InfosNbSnakeLinesHorizontal infosNbSnakeLinesH = InfosNbSnakeLinesHorizontal.create(vlGraph);
@@ -68,7 +70,7 @@ public abstract class AbstractBaseLayout<T extends AbstractBaseGraph> extends Ab
             infosNbSnakeLinesV.setNbSnakeLinesTopBottom(graphId, BOTTOM, updatedNbLinesBottom);
             infosNbSnakeLinesV.setNbSnakeLinesTopBottom(graphId, TOP, updatedNbLinesTop);
             infosNbSnakeLinesV.getNbSnakeLinesLeftRight().put(Side.LEFT, updatedNbLinesLeft);
-        } else if (getGraph().getAllNodesStream().anyMatch(node -> node == node1) && getGraph().getAllNodesStream().anyMatch(node -> node == node2)) { // in the same SS
+        } else if (isVoltageLevelOfGraph(vlGraph1) && isVoltageLevelOfGraph(vlGraph2)) { // in the same SS
             polyline = new ArrayList<>();
             polyline.add(getGraph().getShiftedPoint(node1));
             addMiddlePointsForVerticalLayout(layoutParam, nodes, increment, polyline, infosNbSnakeLinesV, facingNodes);
@@ -77,6 +79,16 @@ public abstract class AbstractBaseLayout<T extends AbstractBaseGraph> extends Ab
             polyline = new ArrayList<>();
         }
         return polyline;
+    }
+
+    /**
+     * Check that the given voltage level graph is one of the voltage levels of the laid-out graph.
+     * This is an O(number of voltage levels) check, replacing a former scan of all the nodes of the graph:
+     * the node-to-voltage-level map is shared between a zone graph and its substation graphs, hence checking
+     * the voltage level ensures the node is indeed part of the current graph.
+     */
+    private boolean isVoltageLevelOfGraph(VoltageLevelGraph vlGraph) {
+        return vlGraph != null && getGraph().getVoltageLevelStream().anyMatch(vl -> vl == vlGraph);
     }
 
     protected void addMiddlePointsForVerticalLayout(LayoutParameters layoutParam,

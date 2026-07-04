@@ -39,6 +39,9 @@ public class BranchEdge extends AbstractEdge {
 
     private List<Point> points1 = Collections.emptyList();
     private List<Point> points2 = Collections.emptyList();
+    // unmodifiable views cached to avoid allocating a new wrapper on each access in the drawing / routing loops
+    private List<Point> points1View = Collections.emptyList();
+    private List<Point> points2View = Collections.emptyList();
     private Point arrowPoint1 = new Point();
     private Point arrowPoint2 = new Point();
     private double arrowAngle1;
@@ -70,11 +73,11 @@ public class BranchEdge extends AbstractEdge {
     }
 
     public List<Point> getPoints1() {
-        return Collections.unmodifiableList(points1);
+        return points1View;
     }
 
     public List<Point> getPoints2() {
-        return Collections.unmodifiableList(points2);
+        return points2View;
     }
 
     public Point getMiddlePoint() {
@@ -93,11 +96,13 @@ public class BranchEdge extends AbstractEdge {
     public void setPoints1(Point... points) {
         Arrays.stream(points).forEach(Objects::requireNonNull);
         this.points1 = Arrays.asList(points);
+        this.points1View = Collections.unmodifiableList(this.points1);
     }
 
     public void setPoints2(Point... points) {
         Arrays.stream(points).forEach(Objects::requireNonNull);
         this.points2 = Arrays.asList(points);
+        this.points2View = Collections.unmodifiableList(this.points2);
     }
 
     public Point getArrow(Side side) {

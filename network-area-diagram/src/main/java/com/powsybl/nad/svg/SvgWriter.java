@@ -28,13 +28,14 @@ import javax.xml.transform.TransformerException;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.sax.SAXResult;
 import java.io.*;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * @author Florian Dupuy {@literal <florian.dupuy at rte-france.com>}
@@ -429,14 +430,23 @@ public class SvgWriter {
     }
 
     private String getPolylinePointsString(List<Point> points) {
-        return points.stream()
-                .map(point -> getFormattedValue(point.x()) + "," + getFormattedValue(point.y()))
-                .collect(Collectors.joining(" "));
+        StringBuilder polylinePoints = new StringBuilder();
+        for (Point point : points) {
+            if (polylinePoints.length() > 0) {
+                polylinePoints.append(' ');
+            }
+            polylinePoints.append(getFormattedValue(point.x())).append(',').append(getFormattedValue(point.y()));
+        }
+        return polylinePoints.toString();
     }
 
     private String getLoopPathString(BranchEdge edge, BranchEdge.Side side) {
-        Object[] points = edge.getPoints(side).stream().flatMap(p -> Stream.of(p.x(), p.y())).toArray();
-        return String.format(Locale.US, "M%.2f,%.2f L%.2f,%.2f C%.2f,%.2f %.2f,%.2f %.2f,%.2f", points);
+        List<Point> points = edge.getPoints(side);
+        return "M" + getFormattedValue(points.get(0).x()) + "," + getFormattedValue(points.get(0).y())
+                + " L" + getFormattedValue(points.get(1).x()) + "," + getFormattedValue(points.get(1).y())
+                + " C" + getFormattedValue(points.get(2).x()) + "," + getFormattedValue(points.get(2).y())
+                + " " + getFormattedValue(points.get(3).x()) + "," + getFormattedValue(points.get(3).y())
+                + " " + getFormattedValue(points.get(4).x()) + "," + getFormattedValue(points.get(4).y());
     }
 
     private void drawThreeWtEdge(XMLStreamWriter writer, ThreeWtEdge edge) throws XMLStreamException {
@@ -1080,8 +1090,12 @@ public class SvgWriter {
         double xEnd = radius * Math.cos(angleEnd);
         double yEnd = radius * Math.sin(angleEnd);
         int largeArc = Math.abs(arcAngle) > Math.PI ? 1 : 0;
-        return String.format(Locale.US, "%.3f,%.3f A%.3f,%.3f %.3f %d %d %.3f,%.3f",
-                xStart, yStart, radius, radius, Math.toDegrees(arcAngle), largeArc, clockWise ? 1 : 0, xEnd, yEnd);
+        String radiusFormatted = formatDouble(radius, 3);
+        return formatDouble(xStart, 3) + "," + formatDouble(yStart, 3)
+                + " A" + radiusFormatted + "," + radiusFormatted
+                + " " + formatDouble(Math.toDegrees(arcAngle), 3)
+                + " " + largeArc + " " + (clockWise ? 1 : 0)
+                + " " + formatDouble(xEnd, 3) + "," + formatDouble(yEnd, 3);
     }
 
     private void insertName(XMLStreamWriter writer, Supplier<Optional<String>> getName) throws XMLStreamException {
@@ -1200,7 +1214,25 @@ public class SvgWriter {
     }
 
     private static String getFormattedValue(double value) {
-        return String.format(Locale.US, "%.2f", value);
+        return formatDouble(value, 2);
+    }
+
+    /**
+     * Fast equivalent of {@code String.format(Locale.US, "%.<scale>f", value)}, which is called for every
+     * coordinate written in the SVG and is a hot spot of the serialization. Like {@code Formatter}, it rounds
+     * half-up the shortest decimal representation of the double (hence the {@code Double.toString} conversion)
+     * and keeps the sign of negative values rounding to zero (e.g. "-0.00").
+     */
+    private static String formatDouble(double value, int scale) {
+        if (!Double.isFinite(value)) {
+            return String.format(Locale.US, "%." + scale + "f", value);
+        }
+        BigDecimal rounded = new BigDecimal(Double.toString(value)).setScale(scale, RoundingMode.HALF_UP);
+        String formatted = rounded.toPlainString();
+        if (rounded.signum() == 0 && Double.doubleToRawLongBits(value) < 0) {
+            return "-" + formatted;
+        }
+        return formatted;
     }
 
     public String getPrefixedId(String id) {
