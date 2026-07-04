@@ -73,6 +73,14 @@ ambition:
 regenerated, and parameter/API decisions belong to the maintainers. This is the top candidate for a
 follow-up: it is the dominant scalability limit of the default full-network NAD.
 
+**Experiment branch: `claude/nad-overlap-prevention-spatial-grid`** — implements the spatial-index
+option with a uniform hash grid (cell size = interaction radius + displacement-clamp margin, rebuilt
+each iteration; the force formula is unchanged, only the pair enumeration order changes). Measured:
+post-processing 24 s → **3.1 s** on the 13k case (total full-network NAD ~55 s); **all 182 existing
+reference tests pass unchanged** (on the small test graphs the interacting pairs land in a single
+cell or there are none, so the computation is bit-identical there); the 13k SVG drifts marginally
+from the parent branch as expected from the changed floating-point summation order.
+
 ### 2. Barnes-Hut acceptance criterion without square root (diagram-util)
 
 `applyRepulsionFromNode` evaluates `nodeWidth < θ · point.distanceTo(barycenter)` — one `Math.sqrt`
@@ -82,6 +90,13 @@ samples). Comparing squared values removes the sqrt.
 **Why deferred:** mathematically equivalent but not bit-identical; a borderline accept/reject
 decision can flip and change the layout, breaking the reference SVGs. Do it together with a
 deliberate reference regeneration (e.g. at the same time as item 1).
+
+**Experiment branch: `claude/nad-barnes-hut-squared-criterion`** — implements the squared
+comparison (θ² precomputed, squared node width propagated through the recursion, delta vector and
+squared distance reused by the repulsion computation). Measured: Atlas2 main loop 52–57 s →
+**48–49 s** (~10%) on the 13k case, same step count; **all 182 existing reference tests pass
+unchanged** (no acceptance decision flips on any test graph), but the 13k SVG differs slightly from
+the parent branch, confirming borderline flips do occur on large graphs.
 
 ### 3. Atlas2 `EdgeAttractionForceLinear`: per-neighbor point lookup (diagram-util)
 
