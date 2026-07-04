@@ -7,6 +7,7 @@
 package com.powsybl.nad.model;
 
 import org.jgrapht.alg.util.Pair;
+import org.jgrapht.alg.util.UnorderedPair;
 import org.jgrapht.graph.Pseudograph;
 import org.jgrapht.graph.WeightedPseudograph;
 
@@ -24,6 +25,10 @@ public class Graph {
     private final Map<String, BusNode> busNodes = new LinkedHashMap<>();
     private final Map<String, BranchEdge> branchEdges = new LinkedHashMap<>();
     private final List<Injection> injections = new ArrayList<>();
+    // typed collections maintained at insertion, to avoid filtering all the nodes / edges on each access
+    private final Map<String, VoltageLevelNode> voltageLevelNodes = new LinkedHashMap<>();
+    private final Map<String, ThreeWtNode> threeWtNodes = new LinkedHashMap<>();
+    private final List<ThreeWtEdge> threeWtEdges = new ArrayList<>();
     private double minX = 0;
     private double minY = 0;
     private double maxX = 0;
@@ -45,13 +50,15 @@ public class Graph {
         Objects.requireNonNull(node);
         nodes.put(node.getEquipmentId(), node);
         voltageLevelGraph.addVertex(node);
-        if (node instanceof VoltageLevelNode) {
-            ((VoltageLevelNode) node).getBusNodeStream().forEach(b -> {
+        if (node instanceof VoltageLevelNode vlNode) {
+            voltageLevelNodes.put(node.getEquipmentId(), vlNode);
+            vlNode.getBusNodeStream().forEach(b -> {
                 busGraph.addVertex(b);
                 busNodes.put(b.getEquipmentId(), b);
             });
         }
-        if (node instanceof ThreeWtNode) {
+        if (node instanceof ThreeWtNode threeWtNode) {
+            threeWtNodes.put(node.getEquipmentId(), threeWtNode);
             busGraph.addVertex(node);
         }
     }
@@ -71,6 +78,7 @@ public class Graph {
     }
 
     public void addEdge(VoltageLevelNode vlNode, BusNode busNode, ThreeWtNode tNode, ThreeWtEdge edge) {
+        threeWtEdges.add(edge);
         addVoltageLevelsEdge(vlNode, tNode, edge);
         addBusesEdge(busNode, tNode, edge);
     }
@@ -116,11 +124,11 @@ public class Graph {
     }
 
     public Stream<VoltageLevelNode> getVoltageLevelNodesStream() {
-        return nodes.values().stream().filter(VoltageLevelNode.class::isInstance).map(VoltageLevelNode.class::cast);
+        return voltageLevelNodes.values().stream();
     }
 
     public Stream<ThreeWtNode> getThreeWtNodesStream() {
-        return nodes.values().stream().filter(ThreeWtNode.class::isInstance).map(ThreeWtNode.class::cast);
+        return threeWtNodes.values().stream();
     }
 
     public Stream<TextNode> getTextNodesStream() {
@@ -173,26 +181,40 @@ public class Graph {
         return Collections.unmodifiableMap(textEdges);
     }
 
+    /**
+     * Group the edges of the voltage level graph by their (unordered) pair of end nodes, in edge insertion order.
+     * This avoids the repeated O(degree) {@code getAllEdges} lookups per edge, which made edge grouping quadratic
+     * for voltage levels with a high number of connections.
+     */
+    private Map<UnorderedPair<Node, Node>, List<Edge>> getEdgesByNodePair() {
+        Map<UnorderedPair<Node, Node>, List<Edge>> edgesByNodePair = new LinkedHashMap<>();
+        for (Edge edge : voltageLevelGraph.edgeSet()) {
+            edgesByNodePair.computeIfAbsent(new UnorderedPair<>(getNode1(edge), getNode2(edge)), k -> new ArrayList<>()).add(edge);
+        }
+        return edgesByNodePair;
+    }
+
     public Stream<BranchEdge> getNonMultiBranchEdgesStream() {
+        Map<UnorderedPair<Node, Node>, List<Edge>> edgesByNodePair = getEdgesByNodePair();
         return voltageLevelGraph.edgeSet().stream()
                 .filter(BranchEdge.class::isInstance)
                 .map(BranchEdge.class::cast)
-                .filter(e -> voltageLevelGraph.getAllEdges(voltageLevelGraph.getEdgeSource(e), voltageLevelGraph.getEdgeTarget(e)).size() == 1);
+                .filter(e -> edgesByNodePair.get(new UnorderedPair<Node, Node>(getNode1(e), getNode2(e))).size() == 1);
     }
 
     public Stream<List<BranchEdge>> getMultiBranchEdgesStream() {
-        return voltageLevelGraph.edgeSet().stream()
-                .filter(this::isNotALoop)
-                .map(e -> voltageLevelGraph.getAllEdges(voltageLevelGraph.getEdgeSource(e), voltageLevelGraph.getEdgeTarget(e)))
+        return getEdgesByNodePair().entrySet().stream()
+                .filter(entry -> entry.getKey().getFirst() != entry.getKey().getSecond()) // no loops
+                .map(Map.Entry::getValue)
                 .filter(e -> e.size() > 1)
-                .distinct()
                 .map(e -> e.stream().filter(BranchEdge.class::isInstance).map(BranchEdge.class::cast).collect(Collectors.toList()))
                 .filter(e -> e.size() > 1);
     }
 
     public Map<VoltageLevelNode, List<BranchEdge>> getLoopBranchEdgesMap() {
-        return voltageLevelGraph.vertexSet().stream()
-                .map(n -> voltageLevelGraph.getAllEdges(n, n).stream()
+        return getEdgesByNodePair().entrySet().stream()
+                .filter(entry -> entry.getKey().getFirst() == entry.getKey().getSecond()) // only loops
+                .map(entry -> entry.getValue().stream()
                         .filter(BranchEdge.class::isInstance).map(BranchEdge.class::cast)
                         .collect(Collectors.toList()))
                 .filter(l -> !l.isEmpty())
@@ -200,13 +222,11 @@ public class Graph {
     }
 
     public Stream<ThreeWtEdge> getThreeWtEdgesStream() {
-        return voltageLevelGraph.edgeSet().stream()
-                .filter(ThreeWtEdge.class::isInstance)
-                .map(ThreeWtEdge.class::cast);
+        return threeWtEdges.stream();
     }
 
     public List<ThreeWtEdge> getThreeWtEdges() {
-        return getThreeWtEdgesStream().collect(Collectors.toList());
+        return Collections.unmodifiableList(threeWtEdges);
     }
 
     public Optional<Node> getNode(String equipmentId) {

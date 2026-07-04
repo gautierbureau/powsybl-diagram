@@ -28,13 +28,14 @@ import javax.xml.transform.TransformerException;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.sax.SAXResult;
 import java.io.*;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 /**
  * @author Florian Dupuy {@literal <florian.dupuy at rte-france.com>}
@@ -429,14 +430,23 @@ public class SvgWriter {
     }
 
     private String getPolylinePointsString(List<Point> points) {
-        return points.stream()
-                .map(point -> getFormattedValue(point.x()) + "," + getFormattedValue(point.y()))
-                .collect(Collectors.joining(" "));
+        StringBuilder polylinePoints = new StringBuilder();
+        for (Point point : points) {
+            if (polylinePoints.length() > 0) {
+                polylinePoints.append(' ');
+            }
+            polylinePoints.append(getFormattedValue(point.x())).append(',').append(getFormattedValue(point.y()));
+        }
+        return polylinePoints.toString();
     }
 
     private String getLoopPathString(BranchEdge edge, BranchEdge.Side side) {
-        Object[] points = edge.getPoints(side).stream().flatMap(p -> Stream.of(p.x(), p.y())).toArray();
-        return String.format(Locale.US, "M%.2f,%.2f L%.2f,%.2f C%.2f,%.2f %.2f,%.2f %.2f,%.2f", points);
+        List<Point> points = edge.getPoints(side);
+        return "M" + getFormattedValue(points.get(0).x()) + "," + getFormattedValue(points.get(0).y())
+                + " L" + getFormattedValue(points.get(1).x()) + "," + getFormattedValue(points.get(1).y())
+                + " C" + getFormattedValue(points.get(2).x()) + "," + getFormattedValue(points.get(2).y())
+                + " " + getFormattedValue(points.get(3).x()) + "," + getFormattedValue(points.get(3).y())
+                + " " + getFormattedValue(points.get(4).x()) + "," + getFormattedValue(points.get(4).y());
     }
 
     private void drawThreeWtEdge(XMLStreamWriter writer, ThreeWtEdge edge) throws XMLStreamException {
@@ -958,8 +968,10 @@ public class SvgWriter {
             writer.writeAttribute(CIRCLE_RADIUS_ATTRIBUTE, getFormattedValue(nodeOuterRadius + svgParameters.getUnknownBusNodeExtraRadius()));
         }
 
-        List<Edge> traversingEdges = new ArrayList<>();
-        List<Injection> traversingInjections = new ArrayList<>();
+        // The angles of the non-loop traversing edges and injections do not depend on the bus ring being drawn,
+        // so they are accumulated once per edge; only loop edges need to be re-evaluated for each ring
+        List<Double> traversingAngles = new ArrayList<>();
+        List<Edge> traversingLoopEdges = new ArrayList<>();
 
         for (BusNode busNode : vlNode.getBusNodes()) {
             double busInnerRadius = RadiusUtils.getBusAnnulusInnerRadius(busNode, vlNode, svgParameters);
@@ -975,7 +987,7 @@ public class SvgWriter {
                 }
             } else {
                 writer.writeEmptyElement(PATH_ELEMENT_NAME);
-                String path = getFragmentedAnnulusPath(busInnerRadius, busOuterRadius, traversingEdges, traversingInjections, graph, vlNode, busNode);
+                String path = getFragmentedAnnulusPath(busInnerRadius, busOuterRadius, traversingAngles, traversingLoopEdges, graph, busNode);
                 writer.writeAttribute(PATH_D_ATTRIBUTE, path);
             }
             writeId(writer, busNode);
@@ -983,8 +995,14 @@ public class SvgWriter {
             writeStyleClasses(writer, busNode.getStyleClasses(), StyleProvider.BUSNODE_CLASS);
             writeStyleAttribute(writer, busNode.getStyle());
 
-            traversingEdges.addAll(graph.getBusEdges(busNode));
-            traversingInjections.addAll(busNode.getInjections());
+            for (Edge edge : graph.getBusEdges(busNode)) {
+                if (graph.getNode1(edge) == graph.getNode2(edge)) {
+                    traversingLoopEdges.add(edge);
+                } else {
+                    traversingAngles.add(getEdgeStartAngle(edge, graph.getNode1(edge) == vlNode ? BranchEdge.Side.ONE : BranchEdge.Side.TWO));
+                }
+            }
+            busNode.getInjections().forEach(injection -> traversingAngles.add(injection.getAngle()));
         }
     }
 
@@ -995,9 +1013,9 @@ public class SvgWriter {
         writer.writeAttribute(PATH_D_ATTRIBUTE, semiCircle);
     }
 
-    private String getFragmentedAnnulusPath(double innerRadius, double outerRadius, List<Edge> traversingBusEdges, List<Injection> traversingInjections,
-                                            Graph graph, VoltageLevelNode vlNode, BusNode busNode) {
-        if (traversingBusEdges.isEmpty() && traversingInjections.isEmpty()) {
+    private String getFragmentedAnnulusPath(double innerRadius, double outerRadius, List<Double> traversingAngles, List<Edge> traversingLoopEdges,
+                                            Graph graph, BusNode busNode) {
+        if (traversingAngles.isEmpty() && traversingLoopEdges.isEmpty()) {
             String path = "M" + getCirclePath(outerRadius, 0, Math.PI, true)
                     + " M" + getCirclePath(outerRadius, Math.PI, 0, true);
             if (innerRadius > 0) { // going the other way around (counter-clockwise) to subtract the inner circle
@@ -1007,8 +1025,17 @@ public class SvgWriter {
             return path;
         }
 
-        List<Double> angles = createTraversingEdgesAnglesList(traversingBusEdges, graph, vlNode, busNode);
-        traversingInjections.forEach(ti -> angles.add(ti.getAngle()));
+        List<Double> angles = new ArrayList<>(traversingAngles.size() + 2 * traversingLoopEdges.size());
+        angles.addAll(traversingAngles);
+        for (Edge edge : traversingLoopEdges) {
+            // For looping edges we need to consider the two angles
+            if (isBusNodeDrawn(graph.getBusGraphNode1(edge), busNode)) {
+                angles.add(getEdgeStartAngle(edge, BranchEdge.Side.ONE));
+            }
+            if (isBusNodeDrawn(graph.getBusGraphNode2(edge), busNode)) {
+                angles.add(getEdgeStartAngle(edge, BranchEdge.Side.TWO));
+            }
+        }
         Collections.sort(angles);
 
         // adding first angle to close the circle annulus, and adding 360° to keep the list ordered
@@ -1032,26 +1059,6 @@ public class SvgWriter {
         }
 
         return path.toString();
-    }
-
-    private List<Double> createTraversingEdgesAnglesList(List<Edge> traversingBusEdges, Graph graph, VoltageLevelNode vlNode, BusNode busNode) {
-        List<Double> angles = new ArrayList<>(traversingBusEdges.size());
-        for (Edge edge : traversingBusEdges) {
-            Node node1 = graph.getNode1(edge);
-            Node node2 = graph.getNode2(edge);
-            if (node1 == node2) {
-                // For looping edges we need to consider the two angles
-                if (isBusNodeDrawn(graph.getBusGraphNode1(edge), busNode)) {
-                    angles.add(getEdgeStartAngle(edge, BranchEdge.Side.ONE));
-                }
-                if (isBusNodeDrawn(graph.getBusGraphNode2(edge), busNode)) {
-                    angles.add(getEdgeStartAngle(edge, BranchEdge.Side.TWO));
-                }
-            } else {
-                angles.add(getEdgeStartAngle(edge, node1 == vlNode ? BranchEdge.Side.ONE : BranchEdge.Side.TWO));
-            }
-        }
-        return angles;
     }
 
     private boolean isBusNodeDrawn(Node busGraphNode, BusNode busNodeCurrentlyDrawn) {
@@ -1080,8 +1087,12 @@ public class SvgWriter {
         double xEnd = radius * Math.cos(angleEnd);
         double yEnd = radius * Math.sin(angleEnd);
         int largeArc = Math.abs(arcAngle) > Math.PI ? 1 : 0;
-        return String.format(Locale.US, "%.3f,%.3f A%.3f,%.3f %.3f %d %d %.3f,%.3f",
-                xStart, yStart, radius, radius, Math.toDegrees(arcAngle), largeArc, clockWise ? 1 : 0, xEnd, yEnd);
+        String radiusFormatted = formatDouble(radius, 3);
+        return formatDouble(xStart, 3) + "," + formatDouble(yStart, 3)
+                + " A" + radiusFormatted + "," + radiusFormatted
+                + " " + formatDouble(Math.toDegrees(arcAngle), 3)
+                + " " + largeArc + " " + (clockWise ? 1 : 0)
+                + " " + formatDouble(xEnd, 3) + "," + formatDouble(yEnd, 3);
     }
 
     private void insertName(XMLStreamWriter writer, Supplier<Optional<String>> getName) throws XMLStreamException {
@@ -1200,7 +1211,25 @@ public class SvgWriter {
     }
 
     private static String getFormattedValue(double value) {
-        return String.format(Locale.US, "%.2f", value);
+        return formatDouble(value, 2);
+    }
+
+    /**
+     * Fast equivalent of {@code String.format(Locale.US, "%.<scale>f", value)}, which is called for every
+     * coordinate written in the SVG and is a hot spot of the serialization. Like {@code Formatter}, it rounds
+     * half-up the shortest decimal representation of the double (hence the {@code Double.toString} conversion)
+     * and keeps the sign of negative values rounding to zero (e.g. "-0.00").
+     */
+    private static String formatDouble(double value, int scale) {
+        if (!Double.isFinite(value)) {
+            return String.format(Locale.US, "%." + scale + "f", value);
+        }
+        BigDecimal rounded = new BigDecimal(Double.toString(value)).setScale(scale, RoundingMode.HALF_UP);
+        String formatted = rounded.toPlainString();
+        if (rounded.signum() == 0 && Double.doubleToRawLongBits(value) < 0) {
+            return "-" + formatted;
+        }
+        return formatted;
     }
 
     public String getPrefixedId(String id) {

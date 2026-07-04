@@ -13,6 +13,7 @@ import org.slf4j.LoggerFactory;
 
 import java.net.URL;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -23,6 +24,12 @@ public abstract class AbstractStyleProvider implements StyleProvider {
     protected static final Logger LOGGER = LoggerFactory.getLogger(AbstractStyleProvider.class);
 
     private final BaseVoltagesConfig baseVoltagesConfig;
+
+    /**
+     * The base voltage style only depends on the nominal voltage, and networks have few distinct nominal voltages,
+     * whereas this style is resolved for every node and every edge side: memoize it
+     */
+    private final Map<Double, Optional<String>> baseVoltageStyleCache = new ConcurrentHashMap<>();
 
     protected AbstractStyleProvider() {
         this(BaseVoltagesConfig.fromPlatformConfig());
@@ -127,8 +134,9 @@ public abstract class AbstractStyleProvider implements StyleProvider {
     protected abstract Optional<String> getBaseVoltageStyle(ThreeWtEdge threeWtEdge);
 
     protected Optional<String> getBaseVoltageStyle(double nominalV) {
-        return baseVoltagesConfig.getBaseVoltageName(nominalV, baseVoltagesConfig.getDefaultProfile())
-                    .map(bvName -> CLASSES_PREFIX + bvName);
+        return baseVoltageStyleCache.computeIfAbsent(nominalV,
+                v -> baseVoltagesConfig.getBaseVoltageName(v, baseVoltagesConfig.getDefaultProfile())
+                    .map(bvName -> CLASSES_PREFIX + bvName));
     }
 
 }

@@ -90,8 +90,10 @@ public class BasicForceLayoutAlgorithm<V, E> implements LayoutAlgorithm<V, E> {
             newVelocity.multiplyBy((1 - Math.exp(-layoutParameters.getDeltaTime() * layoutParameters.getFrictionIntensity() / point.getMass())) / layoutParameters.getFrictionIntensity());
             point.setVelocity(newVelocity);
 
-            if (newVelocity.magnitude() > layoutParameters.getMaxSpeed()) {
-                newVelocity.normalize();
+            // compute the magnitude only once, it is needed both for the check and for the normalization
+            double velocityMagnitude = newVelocity.magnitude();
+            if (velocityMagnitude > layoutParameters.getMaxSpeed()) {
+                newVelocity.divideBy(velocityMagnitude);
                 newVelocity.multiplyBy(layoutParameters.getMaxSpeed());
             }
 

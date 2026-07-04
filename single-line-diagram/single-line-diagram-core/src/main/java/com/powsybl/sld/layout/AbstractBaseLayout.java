@@ -16,7 +16,9 @@ import com.powsybl.sld.model.nodes.Node;
 import org.jgrapht.alg.util.Pair;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static com.powsybl.sld.model.coordinate.Direction.BOTTOM;
 import static com.powsybl.sld.model.coordinate.Direction.TOP;
@@ -31,6 +33,13 @@ public abstract class AbstractBaseLayout<T extends AbstractBaseGraph> extends Ab
 
     protected double maxVoltageLevelWidth;
 
+    /**
+     * Voltage levels and their indices, lazily cached when computing the snake lines (the voltage levels do not
+     * change at that stage of the layout), to avoid rebuilding the list and doing an O(n) indexOf per snake line
+     */
+    private List<VoltageLevelGraph> cachedVoltageLevels;
+    private Map<VoltageLevelGraph, Integer> voltageLevelIndices;
+
     /*
      * Calculate polyline points of a snakeLine in vertical layout
      */
@@ -41,8 +50,10 @@ public abstract class AbstractBaseLayout<T extends AbstractBaseGraph> extends Ab
         List<Point> polyline;
         Node node1 = nodes.getFirst();
         Node node2 = nodes.getSecond();
-        if (getGraph().getVoltageLevelGraph(node1) == getGraph().getVoltageLevelGraph(node2)) { // in the same VL (so far always horizontal layout)
-            VoltageLevelGraph vlGraph = getGraph().getVoltageLevelGraph(node1);
+        VoltageLevelGraph vlGraph1 = getGraph().getVoltageLevelGraph(node1);
+        VoltageLevelGraph vlGraph2 = getGraph().getVoltageLevelGraph(node2);
+        if (vlGraph1 == vlGraph2) { // in the same VL (so far always horizontal layout)
+            VoltageLevelGraph vlGraph = vlGraph1;
             String graphId = vlGraph.getId();
 
             InfosNbSnakeLinesHorizontal infosNbSnakeLinesH = InfosNbSnakeLinesHorizontal.create(vlGraph);
@@ -68,7 +79,7 @@ public abstract class AbstractBaseLayout<T extends AbstractBaseGraph> extends Ab
             infosNbSnakeLinesV.setNbSnakeLinesTopBottom(graphId, BOTTOM, updatedNbLinesBottom);
             infosNbSnakeLinesV.setNbSnakeLinesTopBottom(graphId, TOP, updatedNbLinesTop);
             infosNbSnakeLinesV.getNbSnakeLinesLeftRight().put(Side.LEFT, updatedNbLinesLeft);
-        } else if (getGraph().getAllNodesStream().anyMatch(node -> node == node1) && getGraph().getAllNodesStream().anyMatch(node -> node == node2)) { // in the same SS
+        } else if (isVoltageLevelOfGraph(vlGraph1) && isVoltageLevelOfGraph(vlGraph2)) { // in the same SS
             polyline = new ArrayList<>();
             polyline.add(getGraph().getShiftedPoint(node1));
             addMiddlePointsForVerticalLayout(layoutParam, nodes, increment, polyline, infosNbSnakeLinesV, facingNodes);
@@ -77,6 +88,16 @@ public abstract class AbstractBaseLayout<T extends AbstractBaseGraph> extends Ab
             polyline = new ArrayList<>();
         }
         return polyline;
+    }
+
+    /**
+     * Check that the given voltage level graph is one of the voltage levels of the laid-out graph.
+     * This is an O(number of voltage levels) check, replacing a former scan of all the nodes of the graph:
+     * the node-to-voltage-level map is shared between a zone graph and its substation graphs, hence checking
+     * the voltage level ensures the node is indeed part of the current graph.
+     */
+    private boolean isVoltageLevelOfGraph(VoltageLevelGraph vlGraph) {
+        return vlGraph != null && getGraph().getVoltageLevelStream().anyMatch(vl -> vl == vlGraph);
     }
 
     protected void addMiddlePointsForVerticalLayout(LayoutParameters layoutParam,
@@ -149,12 +170,18 @@ public abstract class AbstractBaseLayout<T extends AbstractBaseGraph> extends Ab
         if (dNode1 == BOTTOM) {
             return y + decalV;
         } else {
-            List<VoltageLevelGraph> vls = getGraph().getVoltageLevels();
-            int iVl = vls.indexOf(getGraph().getVoltageLevelGraph(node));
+            if (cachedVoltageLevels == null) {
+                cachedVoltageLevels = getGraph().getVoltageLevels();
+                voltageLevelIndices = new HashMap<>();
+                for (int i = 0; i < cachedVoltageLevels.size(); i++) {
+                    voltageLevelIndices.putIfAbsent(cachedVoltageLevels.get(i), i);
+                }
+            }
+            int iVl = voltageLevelIndices.getOrDefault(getGraph().getVoltageLevelGraph(node), -1);
             if (iVl == 0) {
                 return y - decalV;
             } else {
-                VoltageLevelGraph vlAbove = vls.get(iVl - 1);
+                VoltageLevelGraph vlAbove = cachedVoltageLevels.get(iVl - 1);
                 return vlAbove.getY()
                         + vlAbove.getHeight() - layoutParam.getVoltageLevelPadding().top() - layoutParam.getVoltageLevelPadding().bottom()
                         + decalV;

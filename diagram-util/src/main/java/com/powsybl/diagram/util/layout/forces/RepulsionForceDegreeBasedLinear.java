@@ -65,9 +65,11 @@ public class RepulsionForceDegreeBasedLinear<V, E> extends AbstractDegreeBasedFo
             Point otherPoint,
             LayoutContext<V, E> layoutContext
     ) {
-        // The force goes from the otherPoint to the point (repulsion)
-        Vector2D force = Vector2D.calculateVectorBetweenPoints(otherPoint, point);
-        double magnitudeSquare = force.magnitudeSquare();
+        // The force goes from the otherPoint to the point (repulsion); computed on doubles directly
+        // to avoid allocating an intermediate Vector2D in this O(n^2) inner loop
+        double forceX = point.getPosition().getX() - otherPoint.getPosition().getX();
+        double forceY = point.getPosition().getY() - otherPoint.getPosition().getY();
+        double magnitudeSquare = forceX * forceX + forceY * forceY;
         if (magnitudeSquare != 0) {
             // divide by magnitude^2 because the force multiplies the unit vector by something/magnitude
             // the unit vector is Vector/magnitude, thus the force is Vector/magnitude * something/magnitude, thus Vector/magnitude^2
@@ -80,8 +82,7 @@ public class RepulsionForceDegreeBasedLinear<V, E> extends AbstractDegreeBasedFo
                 * (vertexDegree + 1)
                 * (otherPoint.getPointVertexDegree() + 1)
                 / magnitudeSquare;
-            force.multiplyBy(intensity);
-            resultingForce.add(force);
+            resultingForce.add(forceX * intensity, forceY * intensity);
         } else {
             resultingForce.add(RandomForce.getRandomForce(layoutContext.getRandomGeneratorForForces()));
         }

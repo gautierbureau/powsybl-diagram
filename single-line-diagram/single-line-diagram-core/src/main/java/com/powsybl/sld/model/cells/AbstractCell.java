@@ -28,6 +28,11 @@ public abstract class AbstractCell implements Cell {
     private final int number;
     private CellType type;
     private Block rootBlock;
+    /**
+     * Lazily computed full id: computing it sorts the node ids and builds a string, and it is used
+     * as a sort key when ordering cells, so it would otherwise be recomputed on each comparison
+     */
+    private String fullId;
 
     AbstractCell(int cellNumber, CellType type, Collection<Node> nodes) {
         this.type = Objects.requireNonNull(type);
@@ -52,6 +57,7 @@ public abstract class AbstractCell implements Cell {
     @Override
     public void setType(CellType type) {
         this.type = type;
+        this.fullId = null; // the full id depends on the type
     }
 
     @Override
@@ -87,7 +93,10 @@ public abstract class AbstractCell implements Cell {
 
     @Override
     public String getFullId() {
-        return type + nodes.stream().map(Node::getId).sorted().toList().toString();
+        if (fullId == null) {
+            fullId = type + nodes.stream().map(Node::getId).sorted().toList().toString();
+        }
+        return fullId;
     }
 
     @Override

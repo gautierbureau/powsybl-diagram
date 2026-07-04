@@ -266,9 +266,10 @@ public class DefaultSVGWriter implements SVGWriter {
         writeStyleClasses(g, styleProvider.getCellStyles(cell));
 
         List<Node> cellNodes = cell.getNodes();
+        Set<Node> cellNodesSet = new HashSet<>(cellNodes); // for O(1) membership tests below
         List<Node> nodesToDraw = cellNodes.stream().filter(n -> !(n instanceof BusNode)).collect(Collectors.toList());
         Collection<Edge> edgesToDraw = nodesToDraw.stream().flatMap(n -> n.getAdjacentEdges().stream())
-                .filter(e -> cellNodes.contains(e.getNode1()) && cellNodes.contains(e.getNode2()))
+                .filter(e -> cellNodesSet.contains(e.getNode1()) && cellNodesSet.contains(e.getNode2()))
                 .collect(Collectors.toCollection(LinkedHashSet::new));
 
         drawEdges(g, graph, metadata, initProvider, styleProvider, edgesToDraw);
@@ -564,7 +565,7 @@ public class DefaultSVGWriter implements SVGWriter {
             line.setAttribute("y2", String.valueOf(node.getPxWidth()));
         }
         g.appendChild(line);
-        g.setAttribute(TRANSFORM, String.format("%s(%s,%s)", TRANSLATE, graph.getX() + node.getX(), graph.getY() + node.getY()));
+        g.setAttribute(TRANSFORM, TRANSLATE + "(" + (graph.getX() + node.getX()) + "," + (graph.getY() + node.getY()) + ")");
     }
 
     /*

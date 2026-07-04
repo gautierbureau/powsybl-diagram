@@ -69,15 +69,17 @@ public class SpringForce<V, E> implements Force<V, E> {
 
             SpringParameter spring = springs.get(edge);
 
-            Vector2D force = Vector2D.calculateVectorBetweenPoints(point, otherPoint);
-            double displacement = force.magnitude() - spring.getLength();
-            force.normalize();
+            // The force goes from the point to the otherPoint; computed on doubles directly
+            // to avoid allocating an intermediate Vector2D in this hot loop
+            double forceX = otherPoint.getPosition().getX() - point.getPosition().getX();
+            double forceY = otherPoint.getPosition().getY() - point.getPosition().getY();
+            double magnitude = Math.sqrt(forceX * forceX + forceY * forceY);
+            double displacement = magnitude - spring.getLength();
 
             // multiply by 0.5 because each vertex will move half of the distance, assuming both are free
             // should this be different if the other point is not moving ?
-            force.multiplyBy(spring.getStiffness() * displacement * 0.5);
-            // might be good to have a method to do this in place instead of creating new Vector2D each time
-            resultingForce.add(force);
+            double factor = spring.getStiffness() * displacement * 0.5;
+            resultingForce.add(forceX / magnitude * factor, forceY / magnitude * factor);
         }
         return resultingForce;
     }
