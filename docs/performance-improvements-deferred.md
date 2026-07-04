@@ -33,6 +33,13 @@ Phase times, before / after the optimizations of this branch (best of 2 iteratio
 | metadata writing (11.5 MB)     |         146 |        167 |
 | **TOTAL**                      | **~148,600**| **~77,800**|
 
+With **deferred items 1 and 2 also applied** (this combined branch — spatial grid for the overlap
+repulsion and squared Barnes-Hut criterion), the same 13k case drops further to **~53–55 s total**
+(Atlas2 main loop ~49 s, overlap post-processing ~3.2 s) — about **2.7× faster than the session-start
+baseline**, with the same convergence (2,864 layout steps) and visual quality. The output SVG drifts
+marginally from the bit-identical branch, as expected from the two approximation changes on a large
+graph.
+
 Key facts:
 
 - **The layout is ~97% of the total.** Everything else — graph building, routing, writing a 15 MB
