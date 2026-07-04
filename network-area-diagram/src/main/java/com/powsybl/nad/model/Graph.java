@@ -25,6 +25,10 @@ public class Graph {
     private final Map<String, BusNode> busNodes = new LinkedHashMap<>();
     private final Map<String, BranchEdge> branchEdges = new LinkedHashMap<>();
     private final List<Injection> injections = new ArrayList<>();
+    // typed collections maintained at insertion, to avoid filtering all the nodes / edges on each access
+    private final Map<String, VoltageLevelNode> voltageLevelNodes = new LinkedHashMap<>();
+    private final Map<String, ThreeWtNode> threeWtNodes = new LinkedHashMap<>();
+    private final List<ThreeWtEdge> threeWtEdges = new ArrayList<>();
     private double minX = 0;
     private double minY = 0;
     private double maxX = 0;
@@ -46,13 +50,15 @@ public class Graph {
         Objects.requireNonNull(node);
         nodes.put(node.getEquipmentId(), node);
         voltageLevelGraph.addVertex(node);
-        if (node instanceof VoltageLevelNode) {
-            ((VoltageLevelNode) node).getBusNodeStream().forEach(b -> {
+        if (node instanceof VoltageLevelNode vlNode) {
+            voltageLevelNodes.put(node.getEquipmentId(), vlNode);
+            vlNode.getBusNodeStream().forEach(b -> {
                 busGraph.addVertex(b);
                 busNodes.put(b.getEquipmentId(), b);
             });
         }
-        if (node instanceof ThreeWtNode) {
+        if (node instanceof ThreeWtNode threeWtNode) {
+            threeWtNodes.put(node.getEquipmentId(), threeWtNode);
             busGraph.addVertex(node);
         }
     }
@@ -72,6 +78,7 @@ public class Graph {
     }
 
     public void addEdge(VoltageLevelNode vlNode, BusNode busNode, ThreeWtNode tNode, ThreeWtEdge edge) {
+        threeWtEdges.add(edge);
         addVoltageLevelsEdge(vlNode, tNode, edge);
         addBusesEdge(busNode, tNode, edge);
     }
@@ -117,11 +124,11 @@ public class Graph {
     }
 
     public Stream<VoltageLevelNode> getVoltageLevelNodesStream() {
-        return nodes.values().stream().filter(VoltageLevelNode.class::isInstance).map(VoltageLevelNode.class::cast);
+        return voltageLevelNodes.values().stream();
     }
 
     public Stream<ThreeWtNode> getThreeWtNodesStream() {
-        return nodes.values().stream().filter(ThreeWtNode.class::isInstance).map(ThreeWtNode.class::cast);
+        return threeWtNodes.values().stream();
     }
 
     public Stream<TextNode> getTextNodesStream() {
@@ -215,13 +222,11 @@ public class Graph {
     }
 
     public Stream<ThreeWtEdge> getThreeWtEdgesStream() {
-        return voltageLevelGraph.edgeSet().stream()
-                .filter(ThreeWtEdge.class::isInstance)
-                .map(ThreeWtEdge.class::cast);
+        return threeWtEdges.stream();
     }
 
     public List<ThreeWtEdge> getThreeWtEdges() {
-        return getThreeWtEdgesStream().collect(Collectors.toList());
+        return Collections.unmodifiableList(threeWtEdges);
     }
 
     public Optional<Node> getNode(String equipmentId) {

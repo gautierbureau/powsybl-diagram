@@ -31,6 +31,12 @@ class BSClusterSide {
     private final BSCluster bsCluster;
     private final Side side;
     private BSClusterSide otherSameRoot;
+    // The underlying cluster does not change during the lifetime of a BSClusterSide: when clusters are merged,
+    // the sides of the merged clusters are discarded and new ones are created. The following collections are
+    // therefore lazily cached, as they are requested by every link this side is part of. They should not be
+    // mutated by the callers.
+    private Set<BusNode> busNodeSet;
+    private List<ExternCell> externCells;
 
     BSClusterSide(BSCluster bsCluster, Side side) {
         this.bsCluster = Objects.requireNonNull(bsCluster);
@@ -42,7 +48,10 @@ class BSClusterSide {
     }
 
     Set<BusNode> getBusNodeSet() {
-        return new LinkedHashSet<>(bsCluster.hblSideBuses(side));
+        if (busNodeSet == null) {
+            busNodeSet = new LinkedHashSet<>(bsCluster.hblSideBuses(side));
+        }
+        return busNodeSet;
     }
 
     List<InternCell> getCandidateFlatCellList() {
@@ -50,7 +59,10 @@ class BSClusterSide {
     }
 
     List<ExternCell> getExternCells() {
-        return bsCluster.getVerticalBusSets().stream().flatMap(vbs -> vbs.getExternCells().stream()).collect(Collectors.toList());
+        if (externCells == null) {
+            externCells = bsCluster.getVerticalBusSets().stream().flatMap(vbs -> vbs.getExternCells().stream()).collect(Collectors.toList());
+        }
+        return externCells;
     }
 
     int getExternCellAttractionToEdge(ExternCell cell) {

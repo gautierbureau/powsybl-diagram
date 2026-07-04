@@ -968,8 +968,10 @@ public class SvgWriter {
             writer.writeAttribute(CIRCLE_RADIUS_ATTRIBUTE, getFormattedValue(nodeOuterRadius + svgParameters.getUnknownBusNodeExtraRadius()));
         }
 
-        List<Edge> traversingEdges = new ArrayList<>();
-        List<Injection> traversingInjections = new ArrayList<>();
+        // The angles of the non-loop traversing edges and injections do not depend on the bus ring being drawn,
+        // so they are accumulated once per edge; only loop edges need to be re-evaluated for each ring
+        List<Double> traversingAngles = new ArrayList<>();
+        List<Edge> traversingLoopEdges = new ArrayList<>();
 
         for (BusNode busNode : vlNode.getBusNodes()) {
             double busInnerRadius = RadiusUtils.getBusAnnulusInnerRadius(busNode, vlNode, svgParameters);
@@ -985,7 +987,7 @@ public class SvgWriter {
                 }
             } else {
                 writer.writeEmptyElement(PATH_ELEMENT_NAME);
-                String path = getFragmentedAnnulusPath(busInnerRadius, busOuterRadius, traversingEdges, traversingInjections, graph, vlNode, busNode);
+                String path = getFragmentedAnnulusPath(busInnerRadius, busOuterRadius, traversingAngles, traversingLoopEdges, graph, busNode);
                 writer.writeAttribute(PATH_D_ATTRIBUTE, path);
             }
             writeId(writer, busNode);
@@ -993,8 +995,14 @@ public class SvgWriter {
             writeStyleClasses(writer, busNode.getStyleClasses(), StyleProvider.BUSNODE_CLASS);
             writeStyleAttribute(writer, busNode.getStyle());
 
-            traversingEdges.addAll(graph.getBusEdges(busNode));
-            traversingInjections.addAll(busNode.getInjections());
+            for (Edge edge : graph.getBusEdges(busNode)) {
+                if (graph.getNode1(edge) == graph.getNode2(edge)) {
+                    traversingLoopEdges.add(edge);
+                } else {
+                    traversingAngles.add(getEdgeStartAngle(edge, graph.getNode1(edge) == vlNode ? BranchEdge.Side.ONE : BranchEdge.Side.TWO));
+                }
+            }
+            busNode.getInjections().forEach(injection -> traversingAngles.add(injection.getAngle()));
         }
     }
 
@@ -1005,9 +1013,9 @@ public class SvgWriter {
         writer.writeAttribute(PATH_D_ATTRIBUTE, semiCircle);
     }
 
-    private String getFragmentedAnnulusPath(double innerRadius, double outerRadius, List<Edge> traversingBusEdges, List<Injection> traversingInjections,
-                                            Graph graph, VoltageLevelNode vlNode, BusNode busNode) {
-        if (traversingBusEdges.isEmpty() && traversingInjections.isEmpty()) {
+    private String getFragmentedAnnulusPath(double innerRadius, double outerRadius, List<Double> traversingAngles, List<Edge> traversingLoopEdges,
+                                            Graph graph, BusNode busNode) {
+        if (traversingAngles.isEmpty() && traversingLoopEdges.isEmpty()) {
             String path = "M" + getCirclePath(outerRadius, 0, Math.PI, true)
                     + " M" + getCirclePath(outerRadius, Math.PI, 0, true);
             if (innerRadius > 0) { // going the other way around (counter-clockwise) to subtract the inner circle
@@ -1017,8 +1025,17 @@ public class SvgWriter {
             return path;
         }
 
-        List<Double> angles = createTraversingEdgesAnglesList(traversingBusEdges, graph, vlNode, busNode);
-        traversingInjections.forEach(ti -> angles.add(ti.getAngle()));
+        List<Double> angles = new ArrayList<>(traversingAngles.size() + 2 * traversingLoopEdges.size());
+        angles.addAll(traversingAngles);
+        for (Edge edge : traversingLoopEdges) {
+            // For looping edges we need to consider the two angles
+            if (isBusNodeDrawn(graph.getBusGraphNode1(edge), busNode)) {
+                angles.add(getEdgeStartAngle(edge, BranchEdge.Side.ONE));
+            }
+            if (isBusNodeDrawn(graph.getBusGraphNode2(edge), busNode)) {
+                angles.add(getEdgeStartAngle(edge, BranchEdge.Side.TWO));
+            }
+        }
         Collections.sort(angles);
 
         // adding first angle to close the circle annulus, and adding 360° to keep the list ordered
@@ -1042,26 +1059,6 @@ public class SvgWriter {
         }
 
         return path.toString();
-    }
-
-    private List<Double> createTraversingEdgesAnglesList(List<Edge> traversingBusEdges, Graph graph, VoltageLevelNode vlNode, BusNode busNode) {
-        List<Double> angles = new ArrayList<>(traversingBusEdges.size());
-        for (Edge edge : traversingBusEdges) {
-            Node node1 = graph.getNode1(edge);
-            Node node2 = graph.getNode2(edge);
-            if (node1 == node2) {
-                // For looping edges we need to consider the two angles
-                if (isBusNodeDrawn(graph.getBusGraphNode1(edge), busNode)) {
-                    angles.add(getEdgeStartAngle(edge, BranchEdge.Side.ONE));
-                }
-                if (isBusNodeDrawn(graph.getBusGraphNode2(edge), busNode)) {
-                    angles.add(getEdgeStartAngle(edge, BranchEdge.Side.TWO));
-                }
-            } else {
-                angles.add(getEdgeStartAngle(edge, node1 == vlNode ? BranchEdge.Side.ONE : BranchEdge.Side.TWO));
-            }
-        }
-        return angles;
     }
 
     private boolean isBusNodeDrawn(Node busGraphNode, BusNode busNodeCurrentlyDrawn) {

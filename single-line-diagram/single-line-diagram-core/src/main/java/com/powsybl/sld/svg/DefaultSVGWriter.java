@@ -565,7 +565,7 @@ public class DefaultSVGWriter implements SVGWriter {
             line.setAttribute("y2", String.valueOf(node.getPxWidth()));
         }
         g.appendChild(line);
-        g.setAttribute(TRANSFORM, String.format("%s(%s,%s)", TRANSLATE, graph.getX() + node.getX(), graph.getY() + node.getY()));
+        g.setAttribute(TRANSFORM, TRANSLATE + "(" + (graph.getX() + node.getX()) + "," + (graph.getY() + node.getY()) + ")");
     }
 
     /*

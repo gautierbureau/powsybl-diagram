@@ -16,7 +16,9 @@ import com.powsybl.sld.model.nodes.Node;
 import org.jgrapht.alg.util.Pair;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static com.powsybl.sld.model.coordinate.Direction.BOTTOM;
 import static com.powsybl.sld.model.coordinate.Direction.TOP;
@@ -30,6 +32,13 @@ public abstract class AbstractBaseLayout<T extends AbstractBaseGraph> extends Ab
     }
 
     protected double maxVoltageLevelWidth;
+
+    /**
+     * Voltage levels and their indices, lazily cached when computing the snake lines (the voltage levels do not
+     * change at that stage of the layout), to avoid rebuilding the list and doing an O(n) indexOf per snake line
+     */
+    private List<VoltageLevelGraph> cachedVoltageLevels;
+    private Map<VoltageLevelGraph, Integer> voltageLevelIndices;
 
     /*
      * Calculate polyline points of a snakeLine in vertical layout
@@ -161,12 +170,18 @@ public abstract class AbstractBaseLayout<T extends AbstractBaseGraph> extends Ab
         if (dNode1 == BOTTOM) {
             return y + decalV;
         } else {
-            List<VoltageLevelGraph> vls = getGraph().getVoltageLevels();
-            int iVl = vls.indexOf(getGraph().getVoltageLevelGraph(node));
+            if (cachedVoltageLevels == null) {
+                cachedVoltageLevels = getGraph().getVoltageLevels();
+                voltageLevelIndices = new HashMap<>();
+                for (int i = 0; i < cachedVoltageLevels.size(); i++) {
+                    voltageLevelIndices.putIfAbsent(cachedVoltageLevels.get(i), i);
+                }
+            }
+            int iVl = voltageLevelIndices.getOrDefault(getGraph().getVoltageLevelGraph(node), -1);
             if (iVl == 0) {
                 return y - decalV;
             } else {
-                VoltageLevelGraph vlAbove = vls.get(iVl - 1);
+                VoltageLevelGraph vlAbove = cachedVoltageLevels.get(iVl - 1);
                 return vlAbove.getY()
                         + vlAbove.getHeight() - layoutParam.getVoltageLevelPadding().top() - layoutParam.getVoltageLevelPadding().bottom()
                         + decalV;
