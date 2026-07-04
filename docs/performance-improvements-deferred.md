@@ -163,6 +163,77 @@ doubling transient memory of the metadata phase (11.5 MB JSON on the 13k case).
 `voltageLevelNodes`, `threeWtNodes` and `threeWtEdges` are now maintained at insertion.
 `Graph` has no removal API today; if one is ever added, these collections must be kept in sync.
 
+## Deferred items from the build / style / zone-layout scan
+
+A second scan covered the previously-unexamined build, style, label-provider and zone-layout code.
+The clean, bit-identical wins from that scan were implemented on branch
+`claude/perf-style-and-zone-cleanups` (subnetwork-highlight early-return, bus-legend re-lookup,
+single-pass legend footer, `MatrixZoneLayout` width/height precompute). The following are left for
+later.
+
+Note: after the layout work, the default full-network render's build/style/write phases are already
+sub-second at the 13k scale, so these are correctness-of-complexity or niche-path items rather than
+dominant costs.
+
+### 10. Zone-by-grid path-finding grid at 1-pixel resolution (single-line-diagram)
+
+`AbstractPositionedZoneLayout.computePathFindingGrid` builds a `Grid(width, height)` in **pixel**
+coordinates and eagerly fills a `Node[width][height]` with a `Node`+`Point` per pixel (tens of
+millions of objects for a large zone), then runs Dijkstra over that pixel-count node space per
+inter-substation snake line. This is the dominant cost/memory of zone snake-line routing.
+
+**Why deferred:** the real fix (coarsen the grid to the snake-line-padding step, and/or allocate
+nodes lazily) changes the routed paths, so it is output-changing and belongs with a deliberate
+reference regeneration. Only affects the zone-by-grid layout, not the default NAD/SLD paths.
+
+### 11. `DijkstraPathFinder` re-expands settled nodes; `Grid.updateNode` overwrites unconditionally (single-line-diagram)
+
+There is no "already settled" skip after `queue.poll()` and no decrease-key, so a node can be popped
+and its neighbor loop re-run multiple times; `updateNode` overwrites `cost`/`parent` with no
+cheaper-cost guard while the same mutable `Node` may already be queued.
+
+**Why deferred:** this is entangled with path-selection correctness (tie-breaking); adding the
+settled-skip / cheaper-cost guard can change which equal-cost path is chosen, hence the output. Niche
+(zone layout only).
+
+### 12. `Grid.getNeighbors` allocation and `Point.hashCode` boxing (single-line-diagram)
+
+`getNeighbors` allocates a fresh `ArrayList` per node expansion; `Point.hashCode()` uses
+`Objects.hash(x, y)` (varargs array + two `Double` boxes) and is called per visited node via the
+Dijkstra `HashSet<Point>` visited set.
+
+**Why deferred:** bit-identical and safe, but only benefits the niche zone path-finding; `Point` is a
+widely-used shared model class, so a `hashCode` change wants its own focused, well-tested commit.
+
+### 13. `CustomTopologicalStyleProvider` re-runs connected-component traversal per element (single-line-diagram)
+
+`getBusNodeStyle`/`getNodeStyle`/`getEdgeStyle`/`getNodeSubcomponentStyle` each call
+`findConnectedNodes` (a component BFS) from scratch, bypassing the per-node-id memoization the parent
+`TopologicalStyleProvider` uses — roughly O(N·K) instead of O(N) on dense voltage levels.
+
+**Why deferred:** the queries have different shapes (single node, node list union, side-specific
+subset), so a correct memoization must key on the right thing; error-prone for a path only used when
+custom bus styling is explicitly requested.
+
+### 14. NAD branch/terminal resolved 5–8× per edge across build + style (network-area-diagram)
+
+For each branch edge, `NetworkGraphBuilder.addEdge` calls the label provider three times (each
+resolving the terminal via `network.getBranch/getLine/...`), and `applyStyle` re-resolves the same
+terminals again for disconnection and base-voltage styles.
+
+**Why deferred:** bit-identical to dedup, but the clean version threads the resolved terminals
+through the label-provider / style-provider APIs, which is a broader signature change; each lookup is
+an individually cheap hashmap `get`, so the gain is modest.
+
+### 15. `StyleProvidersList.concatenateLists` stream + `distinct` per style query (single-line-diagram)
+
+Builds `stream().map().flatMap().distinct().collect()` for every node/edge style query even when a
+single provider is present.
+
+**Why deferred:** minor; a single-provider fast path would avoid the stream + `distinct` allocation on
+the hottest SVG style path but needs care to preserve de-duplication semantics for the multi-provider
+case.
+
 ## Reproducing the benchmark
 
 1. Download `case13659pegase.m` from the MATPOWER repository and convert it to a `.mat` file
