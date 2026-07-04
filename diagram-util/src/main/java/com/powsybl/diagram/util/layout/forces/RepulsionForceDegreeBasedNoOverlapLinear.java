@@ -13,8 +13,6 @@ import com.powsybl.diagram.util.layout.geometry.LayoutContext;
 import com.powsybl.diagram.util.layout.geometry.Point;
 import com.powsybl.diagram.util.layout.geometry.Vector2D;
 
-import java.util.Map;
-
 /**
  * @author Nathan Dissoubray {@literal <nathan.dissoubray at rte-france.com>}
  */
@@ -24,6 +22,11 @@ public class RepulsionForceDegreeBasedNoOverlapLinear<V, E> implements Force<V, 
     private final double repulsionZoneRatio;
     private double repulsionZoneRadius;
     private final NoOverlapPointSize pointSizeRecord;
+    /**
+     * All the points of the layout, snapshotted at init: this force is applied point to point in an O(n²) loop,
+     * iterating an array is significantly faster than iterating the entry set of the points map
+     */
+    private Point[] allPoints = new Point[0];
 
     /**
      * Build a repulsion force to prevent overlap of points that have a given pointSize, only consider points closer than pointSize * repulsionZoneRatio for the repulsion interaction
@@ -48,19 +51,21 @@ public class RepulsionForceDegreeBasedNoOverlapLinear<V, E> implements Force<V, 
         pointSizeRecord.calculatePointSize(layoutContext.getAllPoints().size());
         layoutContext.cacheDegree();
         this.repulsionZoneRadius = this.repulsionZoneRatio * this.pointSizeRecord.getPointSize();
+        // snapshot in the map iteration order, so the forces are accumulated in the same order as before
+        this.allPoints = layoutContext.getAllPoints().values().toArray(new Point[0]);
     }
 
     @Override
     public Vector2D apply(V vertex, Point point, LayoutContext<V, E> layoutContext) {
         Vector2D resultingForce = new Vector2D();
         int thisVertexDegree = point.getPointVertexDegree();
-        for (Map.Entry<V, Point> otherVertexPoint : layoutContext.getAllPoints().entrySet()) {
-            if (otherVertexPoint.getValue() != point) {
+        for (Point otherPoint : allPoints) {
+            if (otherPoint != point) {
                 linearRepulsionBetweenPoints(
                         resultingForce,
                         thisVertexDegree,
                         point,
-                        otherVertexPoint.getValue(),
+                        otherPoint,
                         layoutContext
                 );
             }
@@ -75,8 +80,11 @@ public class RepulsionForceDegreeBasedNoOverlapLinear<V, E> implements Force<V, 
             Point otherPoint,
             LayoutContext<V, E> layoutContext
     ) {
-        Vector2D force = Vector2D.calculateVectorBetweenPoints(otherPoint, point);
-        double magnitude = force.magnitude();
+        // The force goes from the otherPoint to the point (repulsion); computed on doubles directly
+        // to avoid allocating an intermediate Vector2D in this O(n^2) inner loop
+        double forceX = point.getPosition().getX() - otherPoint.getPosition().getX();
+        double forceY = point.getPosition().getY() - otherPoint.getPosition().getY();
+        double magnitude = Math.sqrt(forceX * forceX + forceY * forceY);
         if (magnitude < repulsionZoneRadius) {
             if (magnitude != 0) {
                 //check distance against 2 * pointSize, imagine that the two points are touching edge to edge,
@@ -89,12 +97,10 @@ public class RepulsionForceDegreeBasedNoOverlapLinear<V, E> implements Force<V, 
                     * (otherPoint.getPointVertexDegree() + 1)
                     / magnitude;
 
-                force.multiplyBy(intensity);
-                resultingForce.add(force);
+                resultingForce.add(forceX * intensity, forceY * intensity);
             } else {
                 resultingForce.add(RandomForce.getRandomForce(layoutContext.getRandomGeneratorForForces()));
             }
         }
     }
 }
-
