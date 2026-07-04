@@ -52,15 +52,20 @@ public class OverlapPreventionPostProcessing<V, E> implements PostProcessing<V, 
     public void run(LayoutContext<V, E> layoutContext) {
         Objects.requireNonNull(layoutContext);
         pointSize = parameters.getPointSizeScale() * layoutContext.getAllPoints().size() + parameters.getPointSizeOffset();
+        RepulsionForceDegreeBasedNoOverlapLinear<V, E> repulsionForce = new RepulsionForceDegreeBasedNoOverlapLinear<>(
+                parameters.getRepulsionNoOverlapIntensity(), parameters.getRepulsionWithOverlapIntensity(),
+                parameters.getPointSizeScale(), parameters.getPointSizeOffset(), parameters.getRepulsionZoneRatio());
         List<Force<V, E>> forces = List.of(
                 new EdgeAttractionForceNoOverlapLinear<>(parameters.getEdgeAttractionIntensity(), parameters.getPointSizeScale(), parameters.getPointSizeOffset()),
-                new RepulsionForceDegreeBasedNoOverlapLinear<>(parameters.getRepulsionNoOverlapIntensity(), parameters.getRepulsionWithOverlapIntensity(), parameters.getPointSizeScale(), parameters.getPointSizeOffset(), parameters.getRepulsionZoneRatio()),
+                repulsionForce,
                 new AttractToCenterForceDegreeBasedLinear<>(parameters.getAttractToCenterIntensity())
         );
 
         forces.forEach(f -> f.init(layoutContext));
         double speedFactor = STARTING_SPEED_FACTOR;
         for (int i = 0; i < ITERATION_NUMBER; ++i) {
+            // the points have moved during the previous iteration: refresh the spatial grid of the repulsion force
+            repulsionForce.updateGrid();
             for (Map.Entry<V, Point> entry : layoutContext.getMovingPoints().entrySet()) {
                 Point point = entry.getValue();
                 for (Force<V, E> force : forces) {

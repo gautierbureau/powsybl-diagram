@@ -59,6 +59,16 @@ public class MatrixZoneLayout extends AbstractPositionedZoneLayout {
         // Zone size
         int nbRows = matrix.rowCount();
         int nbCols = matrix.columnCount();
+        // Precompute each column width and row height once: getMatrixCellWidth/Height each scan a whole
+        // column/row, and were previously recomputed twice per cell, making the placement loop O(R*C*(R+C))
+        double[] colWidth = new double[nbCols];
+        for (int col = 0; col < nbCols; col++) {
+            colWidth[col] = matrix.getMatrixCellWidth(col);
+        }
+        double[] rowHeight = new double[nbRows];
+        for (int row = 0; row < nbRows; row++) {
+            rowHeight[row] = matrix.getMatrixCellHeight(row);
+        }
         // Move each substation into its matrix position
         List<Pair<String, Point>> positions = new ArrayList<>();
         for (int row = 0; row < nbRows; row++) {
@@ -68,15 +78,15 @@ public class MatrixZoneLayout extends AbstractPositionedZoneLayout {
                 BaseGraph graph = cell.graph();
                 if (graph != null) {
                     // Compute delta in order to center substations into own matrix cell
-                    int deltaX = (int) (matrix.getMatrixCellWidth(col) % graph.getWidth()) / 2;
-                    int deltaY = (int) (matrix.getMatrixCellHeight(row) % graph.getHeight()) / 2;
+                    int deltaX = (int) (colWidth[col] % graph.getWidth()) / 2;
+                    int deltaY = (int) (rowHeight[row] % graph.getHeight()) / 2;
                     double dx = maxWidthCol + (col + 1.0) * snakelineMargin;
                     double dy = maxHeightRow + (row + 1.0) * snakelineMargin;
                     positions.add(Pair.of(((SubstationGraph) graph).getId(), new Point(dx + deltaX, dy + deltaY)));
                 }
-                maxWidthCol += (int) matrix.getMatrixCellWidth(col);
+                maxWidthCol += (int) colWidth[col];
             }
-            maxHeightRow += (int) matrix.getMatrixCellHeight(row);
+            maxHeightRow += (int) rowHeight[row];
         }
         return positions;
     }
